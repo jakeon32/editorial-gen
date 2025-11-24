@@ -1,0 +1,643 @@
+import { useState } from 'react';
+import {
+    LayoutTemplate,
+    Settings,
+    RefreshCw,
+    Plus,
+    Trash2,
+    Monitor,
+    Palette,
+    FileText,
+    ImageOff,
+    Download,
+    Sliders,
+    Maximize,
+    Grid,
+    Minus
+} from 'lucide-react';
+import { generateBSPPattern } from './utils/bspLayout';
+
+// --- Mock Data & Utilities ---
+const MOCK_IMAGES = [
+    "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1488161628813-99c974fc5fe2?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1513207565459-d7f36bfa1222?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1503268579628-a2691c970c50?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1469334031218-e382a71b716b?auto=format&fit=crop&w=800&q=80",
+    "https://images.unsplash.com/photo-1523913924233-343db889f53c?auto=format&fit=crop&w=800&q=80"
+];
+
+const FONTS = {
+    serif: "font-serif",
+    sans: "font-sans",
+    mono: "font-mono"
+};
+
+const generateFallbackPattern = (count) => {
+    const cols = Math.ceil(Math.sqrt(count));
+    const rows = Math.ceil(count / cols);
+    return {
+        name: "Auto Grid",
+        cols,
+        rows,
+        spans: Array(count).fill([1, 1])
+    };
+};
+
+const generateImageStyles = (count, dynamicLevel) => {
+    return Array.from({ length: count }).map(() => {
+        const isDynamic = dynamicLevel > 0;
+        const intensity = dynamicLevel / 100;
+        const rotate = isDynamic ? (Math.random() - 0.5) * 8 * intensity : 0;
+        const baseScale = 1.02 + (intensity * 0.05);
+        const randomScale = isDynamic ? baseScale + (Math.random() * 0.2 * intensity) : 1;
+
+        return {
+            rotate: rotate,
+            scale: randomScale,
+            rawX: (Math.random() - 0.5) * intensity,
+            rawY: (Math.random() - 0.5) * intensity,
+            intensity: intensity,
+            zIndex: Math.floor(Math.random() * 3),
+        };
+    });
+};
+
+// --- Components ---
+
+const EditorialImage = ({ src, className, style, alt }) => {
+    const [error, setError] = useState(false);
+    if (error) {
+        return (
+            <div className={`bg-gray-100 flex flex-col items-center justify-center text-gray-400 p-4 ${className}`} style={style}>
+                <ImageOff className="w-6 h-6 mb-2 opacity-40" />
+                <span className="text-[8px] font-mono uppercase tracking-widest opacity-60 text-center">Unavailable</span>
+            </div>
+        );
+    }
+    return <img src={src} alt={alt || "Editorial"} className={className} style={style} onError={() => setError(true)} />;
+};
+
+const ImageMetadata = ({ showName, showCaption, index, style = "overlay", rotation = 0 }) => {
+    if (!showName && !showCaption) return null;
+    const textStyle = { transform: `rotate(${-rotation}deg)`, textShadow: '0 1px 2px rgba(0,0,0,0.5)' };
+
+    if (style === "overlay") {
+        return (
+            <div className="absolute bottom-3 left-3 right-3 flex justify-between items-end text-[9px] font-mono text-white pointer-events-none z-20 mix-blend-difference"
+                style={textStyle}>
+                {showName && <span>IMG_{String(index + 1).padStart(2, '0')}</span>}
+                {showCaption && <span className="text-right ml-auto">Fig.{index + 1}</span>}
+            </div>
+        );
+    }
+    return (
+        <div className="flex justify-between items-start mt-1 text-[8px] font-mono opacity-60 tracking-tight relative z-20"
+            style={textStyle}>
+            {showName && <span className="font-bold">IMG_{String(index + 1).padStart(2, '0')}</span>}
+            {showCaption && <span className="ml-auto text-right">Fig.{index + 1}</span>}
+        </div>
+    );
+};
+
+// --- Layout Components ---
+
+const LayoutHero = ({ data, images, styles, accentColor, backgroundColor, contentScale }) => {
+    const s = styles[0] || { rotate: 0, scale: 1, rawX: 0 };
+    return (
+        <div className="relative w-full h-full overflow-hidden group" style={{ backgroundColor }}>
+            <div className="absolute inset-0 w-full h-full overflow-hidden">
+                <div className="w-full h-full transition-all duration-700 ease-out" style={{ transform: `scale(${s.scale}) rotate(${s.rotate}deg)`, transformOrigin: 'center center' }}>
+                    <EditorialImage src={images[0]} className="w-full h-full object-cover opacity-90" />
+                </div>
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent pointer-events-none z-10" />
+            <div className="absolute inset-0 p-8 flex flex-col justify-end text-white z-30">
+                {data.showTag && <span className="font-bold tracking-widest uppercase mb-3 border-l-4 pl-3 inline-block" style={{ borderColor: accentColor, color: accentColor, fontSize: `${0.75 * contentScale}rem` }}>{data.tag}</span>}
+                <h1 className={`font-bold mb-4 leading-tight ${FONTS.serif}`} style={{ transform: `translateX(${s.rawX * 5}px)`, fontSize: `${3.75 * contentScale}rem`, textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>{data.title}</h1>
+                {data.showSubtitle && <h2 className="font-light opacity-90 mb-4 tracking-wide" style={{ fontSize: `${1.5 * contentScale}rem` }}>{data.subtitle}</h2>}
+                <p className="opacity-80 max-w-md line-clamp-3 leading-relaxed mb-8" style={{ fontSize: `${1 * contentScale}rem` }}>{data.description}</p>
+            </div>
+        </div>
+    );
+};
+
+const LayoutSplit = ({ data, images, styles, accentColor, backgroundColor, contentScale }) => {
+    const s0 = styles[0] || { rotate: 0, scale: 1 };
+    const s1 = styles[1] || { rotate: 0, scale: 1 };
+    return (
+        <div className="w-full h-full flex flex-col md:flex-row overflow-hidden" style={{ backgroundColor, color: backgroundColor === '#ffffff' ? '#1a1a1a' : '#ffffff' }}>
+            <div className="w-full md:w-1/2 h-1/2 md:h-full relative overflow-hidden bg-gray-100 z-10">
+                <div className="w-full h-full transition-all duration-500" style={{ transform: `scale(${Math.max(1.05, s0.scale)}) rotate(${s0.rotate * 0.5}deg)`, transformOrigin: 'center center' }}>
+                    <EditorialImage src={images[0]} className="w-full h-full object-cover" />
+                </div>
+                <ImageMetadata showName={data.showImageName} showCaption={data.showImageCaption} index={0} style="overlay" rotation={s0.rotate} />
+            </div>
+            <div className="w-full md:w-1/2 h-1/2 md:h-full p-8 md:p-12 flex flex-col justify-center relative z-30">
+                {data.showTag && <span className="font-mono font-bold mb-6 block" style={{ color: accentColor, fontSize: `${0.75 * contentScale}rem` }}>#{data.tag}</span>}
+                <h1 className={`font-bold mb-6 leading-none tracking-tighter ${FONTS.serif}`} style={{ fontSize: `${3 * contentScale}rem` }}>{data.title}</h1>
+                {data.showSubtitle && <div className="w-12 h-1 mb-6" style={{ backgroundColor: accentColor }}></div>}
+                <p className="leading-relaxed opacity-80 mb-8" style={{ fontSize: `${0.875 * contentScale}rem` }}>{data.description}</p>
+                {images[1] && (
+                    <div className="mt-auto h-32 w-full relative overflow-hidden bg-gray-100 shadow-lg rounded-t-sm" style={{ transform: `scaleY(${s1.scale})`, transformOrigin: 'bottom center', zIndex: 20 }}>
+                        <div className="w-full h-full" style={{ transform: `scale(${s1.scale})` }}>
+                            <EditorialImage src={images[1]} className="w-full h-full object-cover grayscale" />
+                        </div>
+                        <ImageMetadata showName={data.showImageName} showCaption={data.showImageCaption} index={1} style="overlay" />
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const LayoutMinimalGrid = ({ data, images, styles, accentColor, backgroundColor, contentScale }) => {
+    const gridImages = images.slice(1);
+    return (
+        <div className="w-full h-full p-8 flex flex-col overflow-hidden" style={{ backgroundColor, color: backgroundColor === '#ffffff' ? '#1a1a1a' : '#ffffff' }}>
+            <div className="flex justify-between items-start mb-8 border-b pb-4 z-40 relative" style={{ borderColor: 'currentColor', opacity: 0.8 }}>
+                <div>
+                    <h1 className="font-bold uppercase tracking-widest mb-1" style={{ fontSize: `${1.5 * contentScale}rem` }}>{data.title}</h1>
+                    {data.showSubtitle && <p className="font-mono opacity-50" style={{ fontSize: `${0.75 * contentScale}rem` }}>{data.subtitle}</p>}
+                </div>
+                {data.showTag && <div className="px-3 py-1 border rounded-full font-medium" style={{ borderColor: accentColor, color: accentColor, fontSize: `${0.75 * contentScale}rem` }}>{data.tag}</div>}
+            </div>
+            <div className="flex-1 grid grid-cols-2 gap-6 relative z-0 min-h-0">
+                <div className="col-span-1 flex flex-col py-4 z-30 justify-between h-full min-h-0">
+                    <p className={`leading-relaxed font-serif indent-8 mb-8 opacity-90 overflow-y-auto scrollbar-hide`} style={{ fontSize: `${1.125 * contentScale}rem` }}>{data.description}</p>
+                    {images[0] && (
+                        <div className="relative w-full flex-shrink-0 bg-gray-100 overflow-hidden shadow-sm" style={{ height: '50%' }}>
+                            <div style={{ width: '100%', height: '100%', transform: `scale(${styles[0]?.scale || 1}) rotate(${styles[0]?.rotate || 0}deg)`, transition: 'all 0.5s' }}>
+                                <EditorialImage src={images[0]} className="w-full h-full object-cover" />
+                            </div>
+                            <ImageMetadata showName={data.showImageName} showCaption={data.showImageCaption} index={0} style="minimal" />
+                        </div>
+                    )}
+                </div>
+                <div className="col-span-1 grid gap-4 h-full z-20 min-h-0" style={{ gridTemplateRows: `repeat(${Math.max(1, gridImages.length)}, 1fr)` }}>
+                    {gridImages.map((img, i) => {
+                        const s = styles[i + 1] || {};
+                        return (
+                            <div key={i} className="relative w-full h-full overflow-hidden bg-gray-100 shadow-sm">
+                                <div style={{ width: '100%', height: '100%', transform: `scale(${s.scale}) rotate(${s.rotate}deg)`, transition: 'all 0.5s' }}>
+                                    <EditorialImage src={img} className="w-full h-full object-cover grayscale hover:grayscale-0" />
+                                </div>
+                                <ImageMetadata showName={data.showImageName} showCaption={data.showImageCaption} index={i + 1} style="minimal" />
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const LayoutMosaic = ({ data, images, styles, accentColor, backgroundColor, contentScale, pattern }) => {
+    const activePattern = pattern || generateBSPPattern(images.length, true);
+    const blocks = activePattern.blocks;
+
+    if (!blocks) {
+        return (
+            <div className="w-full h-full p-4 flex flex-col overflow-hidden" style={{ backgroundColor, color: backgroundColor === '#ffffff' ? '#000000' : '#ffffff' }}>
+                <div className="flex-1 grid gap-2 relative z-0 pr-2 pb-2 min-h-0" style={{ gridTemplateColumns: `repeat(${activePattern.cols}, 1fr)`, gridTemplateRows: `repeat(${activePattern.rows}, 1fr)` }}>
+                    {images.map((img, i) => {
+                        const s = styles[i] || { rotate: 0, scale: 1 };
+                        const [colSpan, rowSpan] = activePattern.spans[i] || [1, 1];
+                        return (
+                            <div key={i} className="relative bg-gray-100 overflow-hidden" style={{ gridColumn: `span ${colSpan}`, gridRow: `span ${rowSpan}` }}>
+                                <div className="w-full h-full transition-transform duration-500" style={{ transform: `scale(${s.scale}) rotate(${s.rotate}deg)`, transformOrigin: 'center center' }}>
+                                    <EditorialImage src={img} className="w-full h-full object-cover" />
+                                </div>
+                                <ImageMetadata showName={data.showImageName} showCaption={data.showImageCaption} index={i} style="overlay" />
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+
+    let imageIndex = 0;
+
+    return (
+        <div className="w-full h-full p-4 flex flex-col overflow-hidden" style={{ backgroundColor, color: backgroundColor === '#ffffff' ? '#000000' : '#ffffff' }}>
+            <div className="flex-1 grid gap-2 relative z-0 pr-2 pb-2 min-h-0" style={{ gridTemplateColumns: `repeat(${activePattern.cols}, 1fr)`, gridTemplateRows: `repeat(${activePattern.rows}, 1fr)` }}>
+                {blocks.map((block, i) => {
+                    const isContent = block.type === 'content';
+
+                    if (isContent) {
+                        return (
+                            <div key={`content-${i}`} className="relative flex flex-col justify-center p-6 z-10"
+                                style={{ gridColumn: `span ${block.w}`, gridRow: `span ${block.h}` }}>
+                                {data.showTag && <span className="font-bold tracking-widest uppercase mb-3 text-xs" style={{ color: accentColor }}>{data.tag}</span>}
+                                <h1 className={`font-bold mb-4 leading-tight ${FONTS.serif}`} style={{ fontSize: `${2.5 * contentScale}rem` }}>{data.title}</h1>
+                                {data.showSubtitle && <h2 className="font-light opacity-80 mb-4 tracking-wide" style={{ fontSize: `${1.2 * contentScale}rem` }}>{data.subtitle}</h2>}
+                                <p className="opacity-70 line-clamp-4 leading-relaxed text-sm" style={{ fontSize: `${0.9 * contentScale}rem` }}>{data.description}</p>
+                            </div>
+                        );
+                    } else {
+                        const img = images[imageIndex];
+                        const s = styles[imageIndex] || { rotate: 0, scale: 1 };
+                        const currentImgIndex = imageIndex;
+                        imageIndex++;
+
+                        if (!img) return null;
+
+                        return (
+                            <div key={`img-${i}`} className="relative bg-gray-100 overflow-hidden group" style={{ gridColumn: `span ${block.w}`, gridRow: `span ${block.h}` }}>
+                                <div className="w-full h-full transition-transform duration-700 ease-out group-hover:scale-105" style={{ transform: `scale(${s.scale}) rotate(${s.rotate}deg)`, transformOrigin: 'center center' }}>
+                                    <EditorialImage src={img} className="w-full h-full object-cover" />
+                                </div>
+                                <ImageMetadata showName={data.showImageName} showCaption={data.showImageCaption} index={currentImgIndex} style="overlay" />
+                            </div>
+                        );
+                    }
+                })}
+            </div>
+        </div>
+    );
+};
+
+// --- HTML Generator ---
+const downloadHTML = (page, content, config, layoutType) => {
+    const ratioStyle = config.aspectRatio.replace('aspect-[', '').replace(']', '').replace('/', ' / ');
+    const isDarkText = config.backgroundColor === '#ffffff';
+    const textColor = isDarkText ? '#1a1a1a' : '#ffffff';
+
+    const styles = `
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;600&family=JetBrains+Mono&display=swap');
+      body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f3f4f6; }
+      .canvas { width: 100%; max-width: 800px; aspect-ratio: ${ratioStyle}; background-color: ${config.backgroundColor}; position: relative; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); color: ${textColor}; font-family: 'Inter', sans-serif; }
+      .font-serif { font-family: 'Playfair Display', serif; }
+      .font-mono { font-family: 'JetBrains Mono', monospace; }
+      .scale-title { font-size: ${3 * config.contentScale}rem; }
+      .scale-sub { font-size: ${1.2 * config.contentScale}rem; }
+      .scale-body { font-size: ${1 * config.contentScale}rem; }
+    </style>
+  `;
+
+    const getGridHTML = () => {
+        let pattern = page.pattern;
+        if (!pattern) pattern = generateFallbackPattern(page.images.length);
+        const imgTags = page.images.map((src, i) => {
+            const [col, row] = pattern.spans[i] || [1, 1];
+            const s = page.styles[i] || { rotate: 0, scale: 1 };
+            return `
+        <div style="position: relative; width: 100%; height: 100%; overflow: hidden; grid-column: span ${col}; grid-row: span ${row}; background: #eee;">
+          <img src="${src}" style="width: 100%; height: 100%; object-fit: cover; transform: rotate(${s.rotate}deg) scale(${s.scale}); transform-origin: center center;" />
+        </div>`;
+        }).join('');
+
+        return `
+      <div class="canvas p-4 flex flex-col">
+        <div class="flex justify-between items-center mb-4 pb-2 border-b" style="border-color: currentColor; opacity: 0.5;">
+          <h2 class="font-bold scale-title">${content.title}</h2>
+          <span class="text-xs">${content.tag}</span>
+        </div>
+        <div style="flex: 1; display: grid; gap: 0.5rem; grid-template-columns: repeat(${pattern.cols}, 1fr); grid-template-rows: repeat(${pattern.rows}, 1fr); min-height: 0;">
+          ${imgTags}
+        </div>
+      </div>`;
+    };
+
+    const bodyContent = (layoutType === 'mosaic') ? getGridHTML() : `<div class="canvas flex items-center justify-center">HTML Export for ${layoutType}</div>`;
+    const htmlContent = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${content.title}</title>${styles}</head><body>${bodyContent}</body></html>`;
+
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${content.title.replace(/\s+/g, '_')}.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+// --- Main Application ---
+
+export default function EditorialGenerator() {
+    const [content, setContent] = useState({
+        title: "Urban Silence",
+        subtitle: "A study of modern minimalism",
+        description: "Exploring the quiet moments within the chaotic structures of the city. Light, shadow, and form converge.",
+        tag: "Architecture",
+        showSubtitle: true,
+        showTag: true,
+        showImageName: false,
+        showImageCaption: false
+    });
+
+    const [config, setConfig] = useState({
+        aspectRatio: "aspect-[16/9]",
+        structure: 30,
+        contentScale: 1,
+        defaultImageCount: 4,
+        accentColor: "#4F46E5",
+        backgroundColor: "#ffffff"
+    });
+
+    const [pages, setPages] = useState([]);
+
+    const layoutTypes = [
+        { id: 'hero', comp: LayoutHero, minImages: 1, maxImages: 1 },
+        { id: 'split', comp: LayoutSplit, minImages: 2, maxImages: 2 },
+        { id: 'minimal-grid', comp: LayoutMinimalGrid, minImages: 3, maxImages: 6 },
+        { id: 'mosaic', comp: LayoutMosaic, minImages: 2, maxImages: 16 },
+    ];
+
+    const getRandomLayoutForCount = (count) => {
+        const suitable = layoutTypes.filter(lt => count >= lt.minImages && count <= lt.maxImages);
+        return suitable.length > 0 ? suitable[Math.floor(Math.random() * suitable.length)].id : 'mosaic';
+    };
+
+    const addPage = () => {
+        const count = config.defaultImageCount;
+        const layoutId = getRandomLayoutForCount(count);
+        const selectedImages = MOCK_IMAGES.slice(0, count).sort(() => Math.random() - 0.5);
+        const styles = generateImageStyles(count, config.structure);
+        const pattern = layoutId === 'mosaic' ? generateBSPPattern(count, true) : null;
+
+        setPages([...pages, {
+            id: Date.now(),
+            layoutId,
+            images: selectedImages,
+            styles,
+            pattern
+        }]);
+    };
+
+    const removePage = (id) => {
+        setPages(pages.filter(p => p.id !== id));
+    };
+
+    const updatePageLayout = (id) => {
+        setPages(pages.map(page => {
+            if (page.id === id) {
+                const newLayoutId = getRandomLayoutForCount(page.images.length);
+                const newStyles = generateImageStyles(page.images.length, config.structure);
+                const newPattern = newLayoutId === 'mosaic' ? generateBSPPattern(page.images.length, true) : null;
+                return { ...page, layoutId: newLayoutId, styles: newStyles, pattern: newPattern };
+            }
+            return page;
+        }));
+    };
+
+    const updatePageImageCount = (id, delta) => {
+        setPages(pages.map(page => {
+            if (page.id === id) {
+                const newCount = Math.max(1, Math.min(16, page.images.length + delta));
+                const newImages = newCount > page.images.length
+                    ? [...page.images, ...MOCK_IMAGES.filter(img => !page.images.includes(img)).slice(0, newCount - page.images.length)]
+                    : page.images.slice(0, newCount);
+                const newLayoutId = getRandomLayoutForCount(newCount);
+                const newStyles = generateImageStyles(newCount, config.structure);
+                const newPattern = newLayoutId === 'mosaic' ? generateBSPPattern(newCount, true) : null;
+                return { ...page, images: newImages, layoutId: newLayoutId, styles: newStyles, pattern: newPattern };
+            }
+            return page;
+        }));
+    };
+
+    const handleContentChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        setContent({ ...content, [name]: type === 'checkbox' ? checked : value });
+    };
+
+    const handleConfigChange = (e) => {
+        const { name, value } = e.target;
+        setConfig({ ...config, [name]: value });
+    };
+
+    return (
+        <div className="flex h-screen bg-gradient-to-br from-slate-50 to-blue-50 overflow-hidden">
+            {/* --- LEFT CONTROL PANEL --- */}
+            <div className="w-80 bg-white border-r border-gray-100 flex flex-col shadow-xl z-50">
+                <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-indigo-600 to-purple-600">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="w-10 h-10 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center">
+                            <LayoutTemplate className="w-6 h-6 text-white" />
+                        </div>
+                        <h1 className="text-xl font-bold text-white">Editorial Gen</h1>
+                    </div>
+                    <p className="text-xs text-indigo-100 opacity-90">Rapid layout prototyping</p>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                    {/* CANVAS */}
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2 mb-3">
+                            <Monitor className="w-4 h-4 text-gray-400" />
+                            <p className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">Canvas</p>
+                        </div>
+                        <select name="aspectRatio" value={config.aspectRatio} onChange={handleConfigChange}
+                            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all">
+                            <option value="aspect-[1/1]">Square (1:1)</option>
+                            <option value="aspect-[4/3]">Landscape (4:3)</option>
+                            <option value="aspect-[3/4]">Portrait (3:4)</option>
+                            <option value="aspect-[16/9]">Wide (16:9)</option>
+                            <option value="aspect-[9/16]">Tall (9:16)</option>
+                        </select>
+                    </div>
+
+                    {/* SLIDERS */}
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-2 mb-3">
+                            <Sliders className="w-4 h-4 text-gray-400" />
+                            <p className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">Parameters</p>
+                        </div>
+
+                        <div>
+                            <label className="flex justify-between items-center mb-2">
+                                <span className="text-xs font-medium text-gray-600">Structure</span>
+                                <span className="text-xs font-mono text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{config.structure}</span>
+                            </label>
+                            <input type="range" name="structure" min="0" max="100" value={config.structure} onChange={handleConfigChange}
+                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
+                        </div>
+
+                        <div>
+                            <label className="flex justify-between items-center mb-2">
+                                <span className="text-xs font-medium text-gray-600">Size</span>
+                                <span className="text-xs font-mono text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{config.contentScale}x</span>
+                            </label>
+                            <input type="range" name="contentScale" min="0.5" max="1.5" step="0.1" value={config.contentScale} onChange={handleConfigChange}
+                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
+                        </div>
+
+                        <div>
+                            <label className="flex justify-between items-center mb-2">
+                                <span className="text-xs font-medium text-gray-600">Image Count</span>
+                                <span className="text-xs font-mono text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{config.defaultImageCount}</span>
+                            </label>
+                            <input type="range" name="defaultImageCount" min="1" max="16" value={config.defaultImageCount} onChange={handleConfigChange}
+                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
+                        </div>
+                    </div>
+
+                    {/* COLORS */}
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2 mb-3">
+                            <Palette className="w-4 h-4 text-gray-400" />
+                            <p className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">Colors</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs text-gray-500 mb-2">Accent</label>
+                                <input type="color" name="accentColor" value={config.accentColor} onChange={handleConfigChange}
+                                    className="w-full h-10 rounded-lg border border-gray-200 cursor-pointer" />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-gray-500 mb-2">Background</label>
+                                <input type="color" name="backgroundColor" value={config.backgroundColor} onChange={handleConfigChange}
+                                    className="w-full h-10 rounded-lg border border-gray-200 cursor-pointer" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* CONTENT */}
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2 mb-3">
+                            <FileText className="w-4 h-4 text-gray-400" />
+                            <p className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">Content</p>
+                        </div>
+                        <div className="space-y-3">
+                            <input type="text" name="title" value={content.title} onChange={handleContentChange} placeholder="Main Title"
+                                className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all placeholder:text-gray-300" />
+
+                            <textarea name="description" value={content.description} onChange={handleContentChange} placeholder="Description..." rows={3}
+                                className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none resize-none transition-all placeholder:text-gray-300" />
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <input type="text" name="tag" value={content.tag} onChange={handleContentChange} placeholder="Tag"
+                                    className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all placeholder:text-gray-300" />
+                                <input type="text" name="subtitle" value={content.subtitle} onChange={handleContentChange} placeholder="Subtitle"
+                                    className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all placeholder:text-gray-300" />
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 pt-2">
+                            <p className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">ELEMENTS</p>
+                            <div className="grid grid-cols-2 gap-y-3">
+                                {[{ key: 'showSubtitle', label: 'Subtitle' }, { key: 'showTag', label: 'Tag' }, { key: 'showImageName', label: 'Img Name' }, { key: 'showImageCaption', label: 'Caption' }].map((item) => (
+                                    <label key={item.key} className="flex items-center gap-2 cursor-pointer group">
+                                        <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${content[item.key] ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-gray-300'}`}>
+                                            {content[item.key] && <div className="w-2 h-2 bg-white rounded-sm" />}
+                                        </div>
+                                        <input type="checkbox" name={item.key} checked={content[item.key]} onChange={handleContentChange} className="hidden" />
+                                        <span className="text-xs text-gray-600 group-hover:text-gray-900">{item.label}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-4 border-t border-gray-100 bg-white">
+                    <button onClick={addPage}
+                        className="w-full py-3 bg-[#4F46E5] hover:bg-[#4338ca] text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-200 hover:shadow-indigo-300 transform hover:-translate-y-0.5">
+                        <Plus className="w-4 h-4" /> Add New Layout
+                    </button>
+                </div>
+            </div>
+
+            {/* --- RIGHT PREVIEW AREA --- */}
+            <div className="flex-1 overflow-y-auto relative p-4 lg:p-12 scroll-smooth">
+                <div className="max-w-5xl mx-auto space-y-12 pb-32">
+                    {pages.map((page, index) => {
+                        const LayoutComponent = layoutTypes.find(l => l.id === page.layoutId)?.comp || LayoutMosaic;
+                        return (
+                            <div key={page.id} className="animate-in fade-in slide-in-from-bottom-8 duration-700">
+                                {/* Page Header Info */}
+                                <div className="flex items-center justify-between mb-4 px-1">
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xs font-mono text-gray-400">#{index + 1} {page.layoutId.toUpperCase()}</span>
+                                    </div>
+
+                                    {/* Page Controls Toolbar */}
+                                    <div className="flex items-center bg-white rounded-full shadow-sm border border-gray-100 p-1 gap-1">
+                                        <div className="flex items-center px-2 border-r border-gray-100 mr-1">
+                                            <button onClick={() => updatePageImageCount(page.id, -1)} className="p-1 hover:bg-gray-50 rounded-full text-gray-400 hover:text-gray-600"><Minus className="w-3 h-3" /></button>
+                                            <span className="text-xs font-bold w-6 text-center text-gray-600">{page.images.length}</span>
+                                            <button onClick={() => updatePageImageCount(page.id, 1)} className="p-1 hover:bg-gray-50 rounded-full text-gray-400 hover:text-gray-600"><Plus className="w-3 h-3" /></button>
+                                        </div>
+                                        <button onClick={() => downloadHTML(page, content, config, page.layoutId)} className="p-1.5 hover:bg-gray-50 rounded-full text-gray-400 hover:text-indigo-600 transition-colors" title="Download">
+                                            <Download className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => updatePageLayout(page.id)} className="p-1.5 hover:bg-gray-50 rounded-full text-gray-400 hover:text-indigo-600 transition-colors" title="Shuffle">
+                                            <RefreshCw className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => removePage(page.id)} className="p-1.5 hover:bg-gray-50 rounded-full text-gray-400 hover:text-red-500 transition-colors" title="Remove">
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Page Card */}
+                                <div className="bg-white rounded-xl shadow-xl shadow-gray-200/50 overflow-hidden p-6 transition-all hover:shadow-2xl hover:shadow-gray-200/60">
+                                    {/* Card Header */}
+                                    <div className="flex justify-between items-start mb-6">
+                                        <div>
+                                            <h2 className="text-xl font-bold text-gray-800">{content.title}</h2>
+                                            <p className="text-xs text-gray-400 mt-1 font-mono">{page.layoutId} Layout</p>
+                                        </div>
+                                        {content.showTag && (
+                                            <span className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider text-white" style={{ backgroundColor: config.accentColor }}>
+                                                {content.tag}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {/* Layout Container */}
+                                    <div className={`relative mx-auto transition-all duration-500 overflow-hidden shadow-sm ${config.aspectRatio}`}
+                                        style={{ width: '100%', maxWidth: config.aspectRatio.includes('9/16') || config.aspectRatio.includes('3/4') ? '400px' : '100%' }}>
+                                        <LayoutComponent data={content} images={page.images} styles={page.styles} pattern={page.pattern} accentColor={config.accentColor} backgroundColor={config.backgroundColor} contentScale={config.contentScale} />
+                                    </div>
+
+                                    {/* Card Footer */}
+                                    <div className="mt-6 pt-4 border-t border-gray-50 flex justify-between items-end text-gray-500">
+                                        <p className="text-xs leading-relaxed max-w-md line-clamp-2 opacity-80">{content.description}</p>
+                                        <span className="text-[10px] font-mono text-indigo-400 bg-indigo-50 px-2 py-1 rounded-full">{page.images.length} items</span>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+
+                    {pages.length === 0 && (
+                        <div className="flex flex-col items-center justify-center h-[50vh] text-gray-300">
+                            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                                <Settings className="w-8 h-8 opacity-40" />
+                            </div>
+                            <p className="text-sm font-medium">Start by adding a page layout</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* FAB */}
+                <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-4">
+                    <div className="bg-white rounded-full shadow-2xl border border-gray-100 p-1.5 flex flex-col gap-1">
+                        <button className="p-3 hover:bg-gray-50 rounded-full text-gray-400 hover:text-indigo-600 transition-colors">
+                            <Grid className="w-5 h-5" />
+                        </button>
+                        <div className="w-full h-px bg-gray-100"></div>
+                        <button className="p-3 hover:bg-gray-50 rounded-full text-gray-400 hover:text-indigo-600 transition-colors">
+                            <Maximize className="w-5 h-5" />
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
